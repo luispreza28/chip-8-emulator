@@ -1,13 +1,21 @@
 import pygame
 
-# create the memory and registers
-memory = [0] * 4096 # start at 0 - end at 4095
+# memory
+memory = [0] * 4096 # start at 0 - end at 4096
+
+# registers
 V = [0] * 16
 I = 0
-pc = 0x200
+pc = 0x200 # memory address starts at 0x200 (program counter)
+
+# stack
 stack = []
+
+# timer
 delay_timer = 0
 sound_timer = 0
+
+# display (64x32 pixels)
 display = [[0 for _ in range(64)] for _ in range(32)]
 
 
@@ -16,6 +24,7 @@ def load_rom(file_path):
     with open(file_path, 'rb') as f:
         rom = f.read()
     for i in range(len(rom)):
+        # store byte starting at address 0x200 and then increment by i
         memory[0x200 + i] = rom[i]
     print("ROM loaded at memory[0x200]:", memory[0x200:0x220])
 
@@ -28,7 +37,7 @@ def clear_display():
 
 # decode and execute
 def execute_opcode(opcode):
-    global pc, I, stack, delay_timer, sound_timer, display
+    global pc, I, stack, delay_timer, sound_timer, display, V
 
     # Ensure PC is within bounds
     if pc >= len(memory) or pc < 0:
@@ -46,7 +55,9 @@ def execute_opcode(opcode):
         else:
             print("Stack underflow")
             pc += 2
+    # use 0xF000 to isolate the most significant nibble (the first 4 bits)
     elif (opcode & 0xF000) == 0x1000:  # Jump to address
+        # use 0x0FFF to isolate the least significant 12 bits
         pc = opcode & 0x0FFF
     elif (opcode & 0xF000) == 0x2000:  # Call subroutine
         stack.append(pc)
@@ -55,23 +66,23 @@ def execute_opcode(opcode):
         x = (opcode & 0x0F00) >> 8
         nn = opcode & 0x00FF
         if V[x] == nn:
-            pc += 2
-        else:
             pc += 4
+        else:
+            pc += 2
     elif (opcode & 0xF000) == 0x4000:  # Skip next instruction if Vx != NN
         x = (opcode & 0x0F00) >> 8
         nn = opcode & 0x00FF
         if V[x] != nn:
-            pc += 2
-        else:
             pc += 4
+        else:
+            pc += 2
     elif (opcode & 0xF000) == 0x5000:  # Skip next instruction if Vx == Vy
         x = (opcode & 0x0F00) >> 8
         y = (opcode & 0x00F0) >> 4
         if V[x] == V[y]:
-            pc += 2
-        else:
             pc += 4
+        else:
+            pc += 2
     elif (opcode & 0xF000) == 0x6000:  # Set Vx = NN
         x = (opcode & 0x0F00) >> 8
         nn = opcode & 0x00FF
@@ -157,10 +168,11 @@ def execute_opcode(opcode):
             pc += 2
     elif (opcode & 0xF000) == 0xF000:
         x = (opcode & 0x0F00) >> 8
-        if (opcode & 0x00FF) == 0x0007:  # Set Vx = delay timer
+        kk = opcode & 0x00ff
+        if kk == 0x0007:  # Set Vx = delay timer
             V[x] = delay_timer
             pc += 2
-        elif (opcode & 0x00FF) == 0x000A:  # Wait for key press, store value in Vx
+        elif kk == 0x000A:  # Wait for key press, store value in Vx
             key_pressed = False
             for i, key in enumerate(keys):
                 if key:
@@ -169,6 +181,25 @@ def execute_opcode(opcode):
                     break
             if not key_pressed:
                 return  # Wait for key press
+        elif kk == 0x0015: # set delay timer = Vx
+            delay_timer = V[x]
+        elif kk == 0x0018: # set sound timer = Vx
+            sound_timer = V[x]
+        elif kk == 0x001e: # set I = I + Vx
+            I += V[x]
+        elif kk == 0x0029: # set I = location of sprite for digit Vx
+            if V[x] < 16:
+                I = V[x] * 0x0005
+        elif kk == 0x0033: # store BCD representation of Vx in memory locations I, I+1, and I+2
+            memory[I] = V[x] // 100 # hundreds digit
+            memory[I + 1] = (V[x] // 10) & 10 # tens digit
+            memory[I + 2] = V[x] & 10 # ones digit
+        elif kk == 0x0055: # store registers V0 through Vx in memory starting at location I
+            for i in range(x + 1):
+                memory[I + i] = V[i]
+        elif kk == 0x0065: # read registers v0 through Vx from memory starting at location I
+            for i in range(x + 1):
+                V[i] = memory[I + i]
 
 
 
@@ -278,7 +309,7 @@ def update_timers():
 # main loop
 def main():
     screen = initialize_display()
-    load_rom("ibm.ch8")
+    load_rom("picture.ch8")
 
     while True:
         try:
